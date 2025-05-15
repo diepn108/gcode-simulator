@@ -22,16 +22,13 @@ class PositionDrawer(QWidget):
         squareSize = min(event.rect().width(), event.rect().height())
         qp = QPainter(self)
         
-        # Draw boundary
         qp.drawRect(0, 0, squareSize - 1, squareSize - 1)
 
-        # Draw desired position (black circle)
         desiredX = self.desiredX_norm * squareSize
         desiredY = (1 - self.desiredY_norm) * squareSize
         qp.setPen(QPen(Qt.GlobalColor.black, 1))
         qp.drawEllipse(int(desiredX) - 6, int(desiredY) - 6, 12, 12)
 
-        # Draw current position (darkCyan dot)
         currentX = self.currentX_norm * squareSize
         currentY = (1 - self.currentY_norm) * squareSize
         qp.setPen(QPen(Qt.GlobalColor.darkCyan, 1))
@@ -67,7 +64,7 @@ class GCodeDisplay(QMainWindow):
             layout.addWidget(self.sliders[self.axisList[ii]])
 
         self.desiredPos = {axis: 0.0 for axis in self.axisList}
-        self.currentPos = {axis: 0.0 for axis in self.axisList}  # Explicitly track current position
+        self.currentPos = {axis: 0.0 for axis in self.axisList}  
         self.velocity = {axis: DEFAULT_VELOCITY for axis in self.axisList}
         self.ticksPerMm = {axis: 50.0 for axis in self.axisList}
 
@@ -82,7 +79,6 @@ class GCodeDisplay(QMainWindow):
         mainWidget.setLayout(layout)
         self.setCentralWidget(mainWidget)
 
-        # Faster update rate for smoother animation
         self.displayTimer = QTimer()
         self.displayTimer.setInterval(10)
         self.displayTimer.timeout.connect(self.updatePositions)
@@ -104,13 +100,11 @@ class GCodeDisplay(QMainWindow):
                 self.currentPos = self.desiredPos.copy()
                 self._is_moving = False
                 
-        # Update sliders and visual display
         for axis in self.axisList:
             mm = self.currentPos[axis]
             ticks = int(round(mm * self.ticksPerMm[axis]))
             self.sliders[axis].setValue(ticks)
             
-        # Update display dots with normalized positions
         self.drawPanelXY.desiredX_norm = (self.desiredPos["X"] + 300) / 600
         self.drawPanelXY.desiredY_norm = (self.desiredPos["Y"] + 300) / 600
         self.drawPanelXY.currentX_norm = (self.currentPos["X"] + 300) / 600
@@ -130,7 +124,7 @@ class GCodeDisplay(QMainWindow):
         return self._is_moving
         
     def startMovement(self, targetPos, distanceOrDuration=None):
-        with self._motion_lock:  # Add lock for thread safety
+        with self._motion_lock: 
             self._start_pos = self.getCurrentPosition()
 
             distance = math.sqrt(sum(
@@ -172,17 +166,16 @@ class SerialHandler(QThread):
             self._socket.bind(f"tcp://*:{PORT}")
             while self.running:
                 try:
-                    if self._socket.poll(100):  # Add timeout to avoid blocking indefinitely
+                    if self._socket.poll(100): 
                         line = self._socket.recv_string()
                         if line and not line.isspace():
                             ret = self.serialLoop(line)
                             if ret:
                                 self._socket.send_string(f"{ret}\n")
                     else:
-                        # Small delay to prevent CPU hogging
                         time.sleep(0.001)
                 except zmq.ZMQError:
-                    time.sleep(0.1)  # Recover from ZMQ errors
+                    time.sleep(0.1) 
         finally:
             self._socket.close()
 
@@ -207,69 +200,62 @@ class SerialHandler(QThread):
                             if axis not in self.gcode.axisList:
                                 return f"Error: Command '{line}' formatting: Axis '{axis}' does not exist."
                         match args[0]:
-                            case "G00":  # Absolute movement
-                                # Create dict of axis index names to values
+                            case "G00":  
                                 target_pos = {axis: axisDict[axis] for axis in axisDict}
                                 
-                                # Calculate distance for duration
                                 start_pos = self.gcode.getCurrentPosition()
                                 distance = math.sqrt(sum(
                                     (target_pos.get(axis, start_pos[axis]) - start_pos[axis]) ** 2 
                                     for axis in self.gcode.axisList if axis in target_pos
                                 ))
                                 
-                                # Calculate duration based on average velocity
                                 avg_velocity = sum(self.gcode.velocity.values()) / len(self.gcode.velocity)
                                 duration = distance / avg_velocity if avg_velocity > 0 else 0.5
                                 
-                                # Start the movement
                                 self.gcode.startMovement(target_pos, duration)
                                 return "ok"
                                 
-                            case "G01":  # Relative movement
+                            case "G01":
                                 start_pos = self.gcode.getCurrentPosition()
                                 target_pos = {axis: start_pos[axis] + axisDict[axis] for axis in axisDict}
                                 
-                                # Calculate distance for duration
                                 distance = math.sqrt(sum(
                                     (axisDict[axis]) ** 2 
                                     for axis in axisDict
                                 ))
                                 
-                                # Calculate duration based on average velocity
                                 avg_velocity = sum(self.gcode.velocity.values()) / len(self.gcode.velocity)  
                                 duration = distance / avg_velocity if avg_velocity > 0 else 0.5
                                 
-                                # Start the movement
                                 self.gcode.startMovement(target_pos, duration)
                                 return "ok"
                                 
-                            case "V00":  # Set velocity
+                            case "V00":  
                                 for axis, value in axisDict.items():
                                     idx = self.gcode.axisList.index(axis)
                                     self.gcode.velocity[axis] = value
                                 return "ok"
                                 
-                            case "A00":  # Set acceleration (not implemented in this simulator)
+                            case "A00":  
                                 return "ok"
                                 
-                    case "G00?":  # Get current position
+                    case "G00?": 
                         pos = self.gcode.getCurrentPosition()
                         return f"{' '.join(f'{axis}{val}' for axis, val in pos.items())}"
                         
-                    case "E00-?":  # Get minimum endstops
+                    case "E00-?": 
                         mins = self.gcode.getEndstopMin()
                         return f"{' '.join(f'{axis}{val}' for axis, val in mins.items())}"
                         
-                    case "E00+?":  # Get maximum endstops
+                    case "E00+?":  
                         maxs = self.gcode.getEndstopMax()
                         return f"{' '.join(f'{axis}{val}' for axis, val in maxs.items())}"
                         
-                    case "Status?":  # Get status
+                    case "Status?":  
                         status = "Moving" if self.gcode.isMoving() else "Ready"
                         return status
                         
-                    case _:  # Unknown command
+                    case _: 
                         return f"Error: Command '{line}' not recognized."
         except Exception as e:
             return f"Error: {e} while parsing command: '{line}'"
